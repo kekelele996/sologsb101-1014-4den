@@ -100,6 +100,8 @@ export function exportSummaryCsv(
     '最新成活率(%)',
     '判定等级',
     '平均株高(cm)',
+    '上报状态',
+    '备案依据',
     '缺株数(株)',
     '补植计划数',
     '最近补植日期',
@@ -112,7 +114,13 @@ export function exportSummaryCsv(
     const plotReplants = replants.filter((row) => row.plotId === plot.id);
     const total = plotPlantings.reduce((acc, row) => acc + row.count, 0);
     const latest = plotSurveys.length > 0 ? plotSurveys[plotSurveys.length - 1] : null;
-    const rate = latest ? calcSurvivalRate(latest.aliveCount, total) : 0;
+    // 已上报的结论导出冻结原值，不随后续栽植变化重算
+    const frozen = latest?.workflow === 'reported' && typeof latest.reportedRate === 'number';
+    const rate = frozen ? (latest.reportedRate as number) : latest ? calcSurvivalRate(latest.aliveCount, total) : 0;
+    const alive =
+      frozen && typeof latest?.reportedAliveCount === 'number'
+        ? latest.reportedAliveCount
+        : (latest?.aliveCount ?? 0);
     lines.push(
       [
         plot.name,
@@ -126,10 +134,20 @@ export function exportSummaryCsv(
         total,
         plotSurveys.length,
         latest ? `第 ${latest.round} 测次` : '未验收',
-        latest ? latest.aliveCount : 0,
+        alive,
         round1(rate),
         latest ? RATE_LEVEL_LABEL[latest.grade] : '—',
         latest ? latest.avgHeightCm : 0,
+        latest
+          ? latest.workflow === 'reported'
+            ? '已上报（冻结原值）'
+            : latest.workflow === 'held'
+              ? '已挂起'
+              : latest.workflow === 'stale'
+                ? '已失效待重算'
+                : '未上报'
+          : '—',
+        latest?.basis ? `${latest.basis.filingNo} v${latest.basis.version}` : '—',
         plot.missingCount,
         plotReplants.length,
         plot.lastReplantDate || '—',
@@ -179,12 +197,13 @@ export function buildSummaryText(
     const total = plantings.filter((row) => row.plotId === plot.id).reduce((acc, row) => acc + row.count, 0);
     const plotSurveys = surveys.filter((row) => row.plotId === plot.id).sort((a, b) => a.round - b.round);
     const latest = plotSurveys.length > 0 ? plotSurveys[plotSurveys.length - 1] : null;
-    const rate = latest ? calcSurvivalRate(latest.aliveCount, total) : 0;
+    const frozen = latest?.workflow === 'reported' && typeof latest.reportedRate === 'number';
+    const rate = frozen ? (latest.reportedRate as number) : latest ? calcSurvivalRate(latest.aliveCount, total) : 0;
     const pending = replants.filter((row) => row.plotId === plot.id && row.state !== '已复核').length;
+    const rateText = latest ? percentText(rate) : '未验收';
+    const basisText = frozen && latest.basis ? `（依据 ${latest.basis.filingNo} v${latest.basis.version}，原值已冻结）` : '';
     lines.push(
-      `· ${plot.name}（${plot.tideZone}潮位带 / ${plot.substrate}）栽植 ${total} 株，最新成活率 ${
-        latest ? percentText(rate) : '未验收'
-      }，缺株 ${plot.missingCount} 株，待办补植 ${pending} 条`,
+      `· ${plot.name}（${plot.tideZone}潮位带 / ${plot.substrate}）栽植 ${total} 株，最新成活率 ${rateText}${basisText}，缺株 ${plot.missingCount} 株，待办补植 ${pending} 条`,
     );
   });
   return lines.join('\n');

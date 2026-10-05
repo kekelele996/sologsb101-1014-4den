@@ -1,6 +1,7 @@
 /**
- * 路由表：/plots、/plots/:id/seedlings、/plots/:id/plantings、/surveys、/replants
+ * 路由表：/plots、/plots/:id/seedlings、/plots/:id/plantings、/surveys、/filings、/replants
  * 层级路由支持直接深链访问（配合 nginx try_files 回退）；页面按路由懒加载自动分包。
+ * /filings 为林业站侧备案台，与项目部验收台分开。
  */
 import { Suspense, lazy, type ReactNode } from 'react';
 import { Navigate, type RouteObject } from 'react-router-dom';
@@ -11,6 +12,7 @@ const PlotList = lazy(() => import('../pages/PlotList'));
 const SeedlingBoard = lazy(() => import('../pages/SeedlingBoard'));
 const PlantingEntry = lazy(() => import('../pages/PlantingEntry'));
 const SurveyBoard = lazy(() => import('../pages/SurveyBoard'));
+const FilingBoard = lazy(() => import('../pages/FilingBoard'));
 const ReplantPlan = lazy(() => import('../pages/ReplantPlan'));
 
 /** 路由路径常量：全项目唯一来源，避免手写字符串不一致 */
@@ -19,6 +21,7 @@ export const ROUTES = {
   seedlings: (plotId: string): string => `/plots/${plotId}/seedlings`,
   plantings: (plotId: string): string => `/plots/${plotId}/plantings`,
   surveys: '/surveys',
+  filings: '/filings',
   replants: '/replants',
 } as const;
 
@@ -41,6 +44,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'plots/:id/seedlings', element: withSuspense(<SeedlingBoard />) },
       { path: 'plots/:id/plantings', element: withSuspense(<PlantingEntry />) },
       { path: 'surveys', element: withSuspense(<SurveyBoard />) },
+      { path: 'filings', element: withSuspense(<FilingBoard />) },
       { path: 'replants', element: withSuspense(<ReplantPlan />) },
       { path: '*', element: <Navigate to={ROUTES.plots} replace /> },
     ],

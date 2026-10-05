@@ -17,6 +17,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -35,6 +36,8 @@ import EmptyPanel from '../components/common/EmptyPanel';
 import RateTag from '../components/common/RateTag';
 import StatBadge from '../components/common/StatBadge';
 import { usePlotStore } from '../stores/plotStore';
+import { useFilingStore } from '../stores/filingStore';
+import { usePlotReconcile } from '../hooks/usePlotReconcile';
 import {
   PLOT_STATE_OPTIONS,
   RESTORE_MODE_OPTIONS,
@@ -69,6 +72,11 @@ export default function PlotList() {
   const updatePlot = usePlotStore((state) => state.updatePlot);
   const deletePlot = usePlotStore((state) => state.deletePlot);
   const selectPlot = usePlotStore((state) => state.selectPlot);
+  const filings = useFilingStore((state) => state.filings);
+  const plantings = usePlotStore((state) => state.plantings);
+  const seedlings = usePlotStore((state) => state.seedlings);
+
+  const reconcile = usePlotReconcile({ plots, filings, plantings, seedlings });
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Plot | null>(null);
@@ -164,6 +172,43 @@ export default function PlotList() {
       width: 96,
       align: 'right',
       sorter: (a, b) => a.areaMu - b.areaMu,
+    },
+    {
+      title: '备案对账',
+      key: 'reconcile',
+      width: 150,
+      render: (_value, record) => {
+        const filing = filings.find((item) => item.plotId === record.id);
+        const result = reconcile.resultOf(record.id);
+        if (filing === undefined) {
+          return (
+            <Tooltip title="该地块在林业站侧没有备案，上报验收前须先登记或补录备案">
+              <Tag color="red">无备案</Tag>
+            </Tooltip>
+          );
+        }
+        if (result === undefined || result.ok) {
+          return (
+            <Tooltip title={`备案号 ${filing.filingNo} v${filing.currentVersion}，栽植面积与树种均一致`}>
+              <Tag color="green">对得上 · v{filing.currentVersion}</Tag>
+            </Tooltip>
+          );
+        }
+        return (
+          <Tooltip title={result.discrepancies.map((d) => (
+            <div key={`${record.id}-${d.kind}`}>· {d.detail}</div>
+          ))}>
+            <Space direction="vertical" size={0}>
+              <Tag color="volcano" style={{ marginInlineEnd: 0 }}>
+                {result.discrepancies.map((d) => (d.kind === 'area' ? '面积不符' : '树种不符')).join('/')}
+              </Tag>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {filing.filingNo} v{filing.currentVersion}
+              </Typography.Text>
+            </Space>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '潮位带',
@@ -348,7 +393,7 @@ export default function PlotList() {
             loading={!ready}
             columns={columns}
             dataSource={rows}
-            scroll={{ x: 1480 }}
+            scroll={{ x: 1640 }}
             pagination={{ pageSize: 8, showSizeChanger: false }}
             locale={{
               emptyText: (

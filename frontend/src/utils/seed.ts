@@ -32,13 +32,43 @@ function plantingRow(row: Omit<Planting, 'createdAt' | 'updatedAt' | 'revision'>
   return { ...row, createdAt: SEED_TIME, updatedAt: SEED_TIME, revision: ROW_REVISION };
 }
 
-function surveyRow(row: Omit<Survey, 'createdAt' | 'updatedAt' | 'revision' | 'grade' | 'gradeManual' | 'survivalRate'>, total: number): Survey {
+function surveyRow(
+  row: Omit<
+    Survey,
+    | 'createdAt'
+    | 'updatedAt'
+    | 'revision'
+    | 'grade'
+    | 'gradeManual'
+    | 'survivalRate'
+    | 'workflow'
+    | 'reportedRate'
+    | 'reportedAliveCount'
+    | 'reportedTotalCount'
+    | 'basis'
+    | 'reportedAt'
+    | 'discrepancies'
+    | 'staleReason'
+    | 'staleFromVersion'
+  >,
+  total: number,
+): Survey {
   const survivalRate = calcSurvivalRate(row.aliveCount, total);
   return {
     ...row,
     survivalRate,
     grade: rateLevel(survivalRate),
     gradeManual: false,
+    // 播种为项目部侧未上报草稿；上报 / 失效由林业站侧播种（seedStationDatabase）联动设置
+    workflow: 'draft',
+    reportedRate: null,
+    reportedAliveCount: null,
+    reportedTotalCount: null,
+    basis: null,
+    reportedAt: null,
+    discrepancies: [],
+    staleReason: '',
+    staleFromVersion: null,
     createdAt: SEED_TIME,
     updatedAt: SEED_TIME,
     revision: ROW_REVISION,

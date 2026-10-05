@@ -39,6 +39,7 @@ import StatBadge from '../components/common/StatBadge';
 import { useIdbTable } from '../hooks/useIdbTable';
 import { usePlotStore } from '../stores/plotStore';
 import { useReplantStore } from '../stores/replantStore';
+import { useFilingStore } from '../stores/filingStore';
 import { DB_NAME, DB_SCHEMA_VERSION, db } from '../utils/db';
 import { REPLANT_STATE_OPTIONS, type Replant, type ReplantDraft, type ReplantState } from '../types/replant';
 import { SEEDLING_SPECIES_OPTIONS, type SeedlingSpecies } from '../types/seedling';
@@ -201,13 +202,16 @@ export default function ReplantPlan() {
   const handleReset = (): void => {
     modal.confirm({
       title: '确认重置本地数据？',
-      content: '全部地块、苗木批次、栽植记录、验收记录与补植计划都会被清空，并重新灌入演示数据。',
+      content:
+        '项目部侧（地块、苗木批次、栽植、验收、补植）与林业站侧备案都会被清空，并重新灌入演示数据。',
       okText: '确认重置',
       okButtonProps: { danger: true },
       cancelText: '取消',
       onOk: async () => {
         await resetAll();
         await usePlotStore.getState().refreshCounts();
+        // 重新初始化林业站侧：历史补录 + 站侧演示备案（含上报冻结 / 失效教学场景）
+        await useFilingStore.getState().init();
         message.success('已重置为演示数据');
       },
     });

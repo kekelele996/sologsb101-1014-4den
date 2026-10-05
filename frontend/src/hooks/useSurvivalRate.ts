@@ -72,7 +72,13 @@ export function buildSurvivalSummary(
     .filter((row) => row.plotId === plotId)
     .sort((a, b) => a.round - b.round)
     .map((row) => {
-      const rate = totalCount > 0 ? calcSurvivalRate(row.aliveCount, totalCount) : row.survivalRate;
+      // 已上报的验收结论冻结：用上报时保存的口径与成活率，不被当前栽植重算覆盖
+      const frozen = row.workflow === 'reported' && typeof row.reportedRate === 'number';
+      const rate: number = frozen
+        ? (row.reportedRate as number)
+        : totalCount > 0
+          ? calcSurvivalRate(row.aliveCount, totalCount)
+          : row.survivalRate;
       return {
         surveyId: row.id,
         round: row.round,
@@ -81,13 +87,22 @@ export function buildSurvivalSummary(
         avgHeightCm: row.avgHeightCm,
         rate,
         gradeManual: row.gradeManual,
-        level: row.gradeManual ? row.grade : rateLevel(rate),
+        level: row.gradeManual || frozen ? row.grade : rateLevel(rate),
       };
     });
 
   const latest = points.length > 0 ? points[points.length - 1] : null;
   const previous = points.length > 1 ? points[points.length - 2] : null;
   const growth = latest && previous ? heightGrowth(previous.avgHeightCm, latest.avgHeightCm) : { delta: 0, pct: 0 };
+
+  // 已上报记录的补植建议按上报口径（冻结总株数 - 冻结成活株数），其余按当前栽植
+  const latestRow = latest ? surveys.find((row) => row.id === latest.surveyId) : undefined;
+  const frozenSuggest =
+    latestRow?.workflow === 'reported' &&
+    latestRow.reportedTotalCount !== null &&
+    latestRow.reportedAliveCount !== null
+      ? suggestReplantCount(latestRow.reportedTotalCount, latestRow.reportedAliveCount)
+      : null;
 
   return {
     plotId,
@@ -99,7 +114,9 @@ export function buildSurvivalSummary(
     trend: latest && previous ? round1(latest.rate - previous.rate) : 0,
     heightDelta: growth.delta,
     heightPct: growth.pct,
-    suggestReplant: latest ? suggestReplantCount(totalCount, latest.aliveCount) : totalCount,
+    suggestReplant: latest
+      ? (frozenSuggest ?? suggestReplantCount(totalCount, latest.aliveCount))
+      : totalCount,
     level: latest ? latest.level : 'poor',
     warn: latest !== null && latest.rate < threshold,
   };
