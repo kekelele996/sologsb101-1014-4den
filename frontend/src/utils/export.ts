@@ -67,8 +67,15 @@ export function parseSnapshot(text: string): SnapshotParseResult {
       snapshot: null,
     };
   }
-  const collections: Array<keyof DatabaseSnapshot> = ['plots', 'seedlings', 'plantings', 'surveys', 'replants'];
+  const collections: Array<keyof DatabaseSnapshot> = ['plots', 'seedlings', 'plantings', 'surveys', 'replants', 'filings'];
   for (const key of collections) {
+    if (key === 'filings') {
+      // 备案表为 v3 新增：旧存档可能不含该数组，缺失时按空数组处理
+      if (!Array.isArray(data[key])) {
+        (data as DatabaseSnapshot).filings = [];
+      }
+      continue;
+    }
     if (!Array.isArray(data[key])) {
       return { ok: false, message: `存档缺少 ${String(key)} 数组。`, snapshot: null };
     }

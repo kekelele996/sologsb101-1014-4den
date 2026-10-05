@@ -28,6 +28,16 @@ export interface SurvivalPoint {
   /** 是否被人工复核过等级 */
   gradeManual: boolean;
   level: RateLevel;
+  /** 上报状态：未上报 / 已上报 */
+  reportState: Survey['reportState'];
+  /** 未上报结论是否已失效（备案改动后需重算） */
+  stale: boolean;
+  /** 已上报结论依据的备案版本 */
+  basedOnFilingVersion: number | null;
+  /** 已上报结论依据的备案号 */
+  basedOnFilingNo: string;
+  /** 已上报结论依据的备案树种（快照） */
+  filingSpeciesSnapshot: string;
 }
 
 /** 单个地块的成活率派生汇总 */
@@ -72,7 +82,13 @@ export function buildSurvivalSummary(
     .filter((row) => row.plotId === plotId)
     .sort((a, b) => a.round - b.round)
     .map((row) => {
-      const rate = totalCount > 0 ? calcSurvivalRate(row.aliveCount, totalCount) : row.survivalRate;
+      // 已上报结论冻结原值（备案改动后不再重算）；未上报结论按当前栽植总株数派生
+      const rate =
+        row.reportState === 'reported'
+          ? row.survivalRate
+          : totalCount > 0
+            ? calcSurvivalRate(row.aliveCount, totalCount)
+            : row.survivalRate;
       return {
         surveyId: row.id,
         round: row.round,
@@ -82,6 +98,11 @@ export function buildSurvivalSummary(
         rate,
         gradeManual: row.gradeManual,
         level: row.gradeManual ? row.grade : rateLevel(rate),
+        reportState: row.reportState ?? 'draft',
+        stale: row.stale ?? false,
+        basedOnFilingVersion: row.basedOnFilingVersion ?? null,
+        basedOnFilingNo: row.basedOnFilingNo ?? '',
+        filingSpeciesSnapshot: row.filingSpeciesSnapshot ?? '',
       };
     });
 

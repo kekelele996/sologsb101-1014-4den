@@ -29,6 +29,8 @@ import {
   RiseOutlined,
   FallOutlined,
   ToolOutlined,
+  CloudUploadOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import EmptyPanel from '../components/common/EmptyPanel';
@@ -67,6 +69,8 @@ export default function SurveyBoard() {
   const createSurvey = useSurveyStore((state) => state.createSurvey);
   const updateSurvey = useSurveyStore((state) => state.updateSurvey);
   const deleteSurvey = useSurveyStore((state) => state.deleteSurvey);
+  const reportSurvey = useSurveyStore((state) => state.reportSurvey);
+  const recalcSurvey = useSurveyStore((state) => state.recalcSurvey);
   const surveyRevision = useSurveyStore((state) => state.revision);
 
   const { rows, loading, remove } = useIdbTable<Survey>(db.surveys, { sortByUpdatedAt: false });
@@ -190,6 +194,21 @@ export default function SurveyBoard() {
     message.success(result);
   };
 
+  const handleReport = async (row: Survey): Promise<void> => {
+    const result = await reportSurvey(row.id);
+    if (result.ok) {
+      message.success(result.message);
+    } else {
+      // 挂起：写明差在哪，便于项目部核对
+      message.warning(result.message, 8);
+    }
+  };
+
+  const handleRecalc = async (row: Survey): Promise<void> => {
+    await recalcSurvey(row.id);
+    message.success('已按当前栽植台账重算成活率，可重新上报');
+  };
+
   const columns: ColumnsType<Survey> = [
     {
       title: '地块',
@@ -272,31 +291,82 @@ export default function SurveyBoard() {
         record.gradeManual ? <Tag color="purple">人工复核</Tag> : <Tag>自动判定</Tag>,
     },
     {
+      title: '上报状态',
+      key: 'reportState',
+      width: 200,
+      render: (_value, record) => {
+        const point = summaryOf(record.plotId).points.find((item) => item.surveyId === record.id);
+        const stale = point?.stale ?? record.stale;
+        if (record.reportState === 'reported') {
+          return (
+            <Space direction="vertical" size={2}>
+              <Tag color="green">已上报</Tag>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                依据备案 {record.basedOnFilingNo || '—'}
+                {record.basedOnFilingVersion !== null ? ` · v${record.basedOnFilingVersion}` : ''}
+              </Typography.Text>
+            </Space>
+          );
+        }
+        if (stale) {
+          return (
+            <Space direction="vertical" size={2}>
+              <Tag color="orange">已失效</Tag>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                备案已改动，需重算
+              </Typography.Text>
+            </Space>
+          );
+        }
+        return <Tag>未上报</Tag>;
+      },
+    },
+    {
       title: '操作',
       key: 'action',
-      width: 150,
-      render: (_value, record) => (
-        <Space size={4}>
-          <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          <Popconfirm
-            title="确认删除该测次记录？"
-            okText="删除"
-            okButtonProps={{ danger: true }}
-            cancelText="取消"
-            onConfirm={async () => {
-              await deleteSurvey(record.id);
-              await remove(record.id);
-              message.success('验收记录已删除');
-            }}
-          >
-            <Button size="small" type="link" danger icon={<DeleteOutlined />}>
-              删除
+      width: 230,
+      render: (_value, record) => {
+        const point = summaryOf(record.plotId).points.find((item) => item.surveyId === record.id);
+        const stale = point?.stale ?? record.stale;
+        const reported = record.reportState === 'reported';
+        return (
+          <Space size={4} wrap>
+            {!reported ? (
+              <Button
+                size="small"
+                type="link"
+                icon={<CloudUploadOutlined />}
+                onClick={() => void handleReport(record)}
+              >
+                上报
+              </Button>
+            ) : null}
+            {!reported && stale ? (
+              <Button size="small" type="link" icon={<ReloadOutlined />} onClick={() => void handleRecalc(record)}>
+                重算
+              </Button>
+            ) : null}
+            <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+              编辑
             </Button>
-          </Popconfirm>
-        </Space>
-      ),
+            <Popconfirm
+              title="确认删除该测次记录？"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={async () => {
+                await deleteSurvey(record.id);
+                await remove(record.id);
+                message.success('验收记录已删除');
+              }}
+            >
+              <Button size="small" type="link" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ];
 

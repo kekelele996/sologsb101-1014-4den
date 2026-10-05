@@ -5,7 +5,7 @@
  */
 import { create } from 'zustand';
 import type { RateLevel, Survey } from '../types/survey';
-import { db, initDatabase, patchSurveyGrades, putSurvey, removeSurvey } from '../utils/db';
+import { db, initDatabase, patchSurveyGrades, putSurvey, removeSurvey, reportSurvey as reportSurveyRow, recalcSurvey as recalcSurveyRow, ROW_REVISION } from '../utils/db';
 import type { SurvivalSummary } from '../hooks/useSurvivalRate';
 import { nowIso, uuid } from '../utils/id';
 import { calcSurvivalRate, rateLevel } from '../utils/rate';
@@ -44,6 +44,10 @@ interface SurveyStoreState {
   bulkApplyGrade: (level: RateLevel) => Promise<number>;
   /** 按最新测次生成补植计划（回写地块缺株数） */
   generateReplant: (plotId: string) => Promise<string>;
+  /** 上报验收结论（先与备案对账，不符则挂起并写明差异） */
+  reportSurvey: (surveyId: string) => Promise<{ ok: boolean; message: string }>;
+  /** 重算失效的未上报验收结论 */
+  recalcSurvey: (surveyId: string) => Promise<void>;
   summaryOf: (plotId: string | null) => SurvivalSummary;
   rateStats: () => { total: number; warnCount: number; avgRate: number };
 }
@@ -97,9 +101,17 @@ export const useSurveyStore = create<SurveyStoreState>((set, get) => ({
       survivalRate,
       grade: rateLevel(survivalRate),
       gradeManual: false,
+      reportState: 'draft',
+      reportedAt: '',
+      basedOnFilingId: '',
+      basedOnFilingVersion: null,
+      basedOnFilingNo: '',
+      filingAreaMuSnapshot: null,
+      filingSpeciesSnapshot: '',
+      stale: false,
       createdAt: stamp,
       updatedAt: stamp,
-      revision: 2,
+      revision: ROW_REVISION,
     };
     await putSurvey(row);
     set({ revision: get().revision + 1 });
@@ -111,6 +123,8 @@ export const useSurveyStore = create<SurveyStoreState>((set, get) => ({
     if (!existing) return;
     const total = totalPlantedOf(draft.plotId);
     const survivalRate = calcSurvivalRate(draft.aliveCount, total);
+    // 已上报结论冻结原值与备案依据：编辑实测字段不改写已上报的成活率
+    const frozen = existing.reportState === 'reported';
     await putSurvey({
       ...existing,
       plotId: draft.plotId,
@@ -118,7 +132,8 @@ export const useSurveyStore = create<SurveyStoreState>((set, get) => ({
       date: draft.date,
       aliveCount: draft.aliveCount,
       avgHeightCm: draft.avgHeightCm,
-      survivalRate,
+      survivalRate: frozen ? existing.survivalRate : survivalRate,
+      grade: frozen || existing.gradeManual ? existing.grade : rateLevel(survivalRate),
     });
     set({ revision: get().revision + 1 });
   },
@@ -158,6 +173,19 @@ export const useSurveyStore = create<SurveyStoreState>((set, get) => ({
     });
     set({ revision: get().revision + 1, lastMessage: `已为「${plot.name}」生成补植计划：缺株 ${missing} 株` });
     return `已生成补植计划：缺株 ${missing} 株`;
+  },
+
+  async reportSurvey(surveyId) {
+    const result = await reportSurveyRow(surveyId);
+    if (result.ok) {
+      set({ revision: get().revision + 1, lastMessage: result.message });
+    }
+    return { ok: result.ok, message: result.message };
+  },
+
+  async recalcSurvey(surveyId) {
+    await recalcSurveyRow(surveyId);
+    set({ revision: get().revision + 1 });
   },
 
   summaryOf(plotId) {

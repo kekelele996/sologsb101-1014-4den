@@ -9,6 +9,7 @@ import type { Seedling } from '../types/seedling';
 import type { Planting } from '../types/planting';
 import type { Survey } from '../types/survey';
 import type { Replant } from '../types/replant';
+import type { Filing } from '../types/filing';
 import { calcSurvivalRate, rateLevel } from './rate';
 
 const SEED_TIME = '2025-01-06T02:00:00.000Z';
@@ -32,13 +33,21 @@ function plantingRow(row: Omit<Planting, 'createdAt' | 'updatedAt' | 'revision'>
   return { ...row, createdAt: SEED_TIME, updatedAt: SEED_TIME, revision: ROW_REVISION };
 }
 
-function surveyRow(row: Omit<Survey, 'createdAt' | 'updatedAt' | 'revision' | 'grade' | 'gradeManual' | 'survivalRate'>, total: number): Survey {
+function surveyRow(row: Omit<Survey, 'createdAt' | 'updatedAt' | 'revision' | 'grade' | 'gradeManual' | 'survivalRate' | 'reportState' | 'reportedAt' | 'basedOnFilingId' | 'basedOnFilingVersion' | 'basedOnFilingNo' | 'filingAreaMuSnapshot' | 'filingSpeciesSnapshot' | 'stale'>, total: number): Survey {
   const survivalRate = calcSurvivalRate(row.aliveCount, total);
   return {
     ...row,
     survivalRate,
     grade: rateLevel(survivalRate),
     gradeManual: false,
+    reportState: 'draft',
+    reportedAt: '',
+    basedOnFilingId: '',
+    basedOnFilingVersion: null,
+    basedOnFilingNo: '',
+    filingAreaMuSnapshot: null,
+    filingSpeciesSnapshot: '',
+    stale: false,
     createdAt: SEED_TIME,
     updatedAt: SEED_TIME,
     revision: ROW_REVISION,
@@ -46,6 +55,10 @@ function surveyRow(row: Omit<Survey, 'createdAt' | 'updatedAt' | 'revision' | 'g
 }
 
 function replantRow(row: Omit<Replant, 'createdAt' | 'updatedAt' | 'revision'>): Replant {
+  return { ...row, createdAt: SEED_TIME, updatedAt: SEED_TIME, revision: ROW_REVISION };
+}
+
+function filingRow(row: Omit<Filing, 'createdAt' | 'updatedAt' | 'revision'>): Filing {
   return { ...row, createdAt: SEED_TIME, updatedAt: SEED_TIME, revision: ROW_REVISION };
 }
 
@@ -139,11 +152,49 @@ export async function seedDatabase(): Promise<void> {
     replantRow({ id: 'replant-c1', plotId: SEED_IDS.plotC, missingCount: 560, planDate: '2024-11-05', species: '无瓣海桑', state: '已复核' }),
   ];
 
-  await db.transaction('rw', db.plots, db.seedlings, db.plantings, db.surveys, db.replants, async () => {
+  // ---------------- 林业站备案（每地块 1 份有效备案，面积/主植树种与栽植台账一致） ----------------
+  const filings: Filing[] = [
+    filingRow({
+      id: 'filing-a1',
+      plotId: SEED_IDS.plotA,
+      filingNo: '备-2024-001',
+      filingAreaMu: 46.5,
+      filingSpecies: '秋茄',
+      version: 1,
+      status: '有效',
+      filedAt: '2024-04-10',
+      note: '首版备案',
+    }),
+    filingRow({
+      id: 'filing-b1',
+      plotId: SEED_IDS.plotB,
+      filingNo: '备-2024-002',
+      filingAreaMu: 32,
+      filingSpecies: '白骨壤',
+      version: 1,
+      status: '有效',
+      filedAt: '2024-04-25',
+      note: '首版备案',
+    }),
+    filingRow({
+      id: 'filing-c1',
+      plotId: SEED_IDS.plotC,
+      filingNo: '备-2024-003',
+      filingAreaMu: 58.2,
+      filingSpecies: '无瓣海桑',
+      version: 1,
+      status: '有效',
+      filedAt: '2024-03-10',
+      note: '首版备案',
+    }),
+  ];
+
+  await db.transaction('rw', [db.plots, db.seedlings, db.plantings, db.surveys, db.replants, db.filings], async () => {
     await db.plots.bulkPut(plots);
     await db.seedlings.bulkPut(seedlings);
     await db.plantings.bulkPut(plantings);
     await db.surveys.bulkPut(surveys);
     await db.replants.bulkPut(replants);
+    await db.filings.bulkPut(filings);
   });
 }

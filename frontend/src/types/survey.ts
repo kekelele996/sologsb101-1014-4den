@@ -33,10 +33,34 @@ export interface Survey {
   grade: RateLevel;
   /** 该等级是否被人工调整过 */
   gradeManual: boolean;
+  /** 上报状态：未上报 / 已上报（上报后冻结成活率与备案依据） */
+  reportState: SurveyReportState;
+  /** 上报时间 YYYY-MM-DDTHH:mm:ss.sssZ */
+  reportedAt: string;
+  /** 上报时依据的备案 id */
+  basedOnFilingId: string;
+  /** 上报时依据的备案版本号（冻结，备案改动后不再变化） */
+  basedOnFilingVersion: number | null;
+  /** 上报时依据的备案号（快照，便于通报时直接引用） */
+  basedOnFilingNo: string;
+  /** 上报时备案面积（亩）快照 */
+  filingAreaMuSnapshot: number | null;
+  /** 上报时备案树种快照 */
+  filingSpeciesSnapshot: string;
+  /** 未上报验收结论是否已失效（备案改动后置为 true，需重算后才能上报） */
+  stale: boolean;
   createdAt: string;
   updatedAt: string;
   revision: number;
 }
+
+/** 验收上报状态：未上报 / 已上报 */
+export type SurveyReportState = 'draft' | 'reported';
+
+export const SURVEY_REPORT_STATE_LABEL: Record<SurveyReportState, string> = {
+  draft: '未上报',
+  reported: '已上报',
+};
 
 /** 新建 / 编辑验收记录的表单草稿 */
 export interface SurveyDraft {

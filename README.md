@@ -69,13 +69,13 @@ sologsb101-1014/
         ├── main.tsx            # 入口：ConfigProvider + RouterProvider
         ├── App.tsx             # 外壳：侧边导航 + 当前地块上下文 + 数据库初始化
         ├── styles/main.css
-        ├── types/              # plot.ts seedling.ts planting.ts survey.ts replant.ts
-        ├── stores/             # plotStore.ts surveyStore.ts replantStore.ts
+        ├── types/              # plot.ts seedling.ts planting.ts survey.ts replant.ts filing.ts
+        ├── stores/             # plotStore.ts surveyStore.ts replantStore.ts filingStore.ts
         ├── components/common/  # RateTag.tsx FilterBar.tsx StatBadge.tsx EmptyPanel.tsx
         ├── hooks/              # useSurvivalRate.ts useIdbTable.ts
-        ├── pages/              # 5 个模块页面
+        ├── pages/              # 6 个模块页面（含 FilingBoard 林业站备案）
         ├── router/index.tsx    # 路由表 + ROUTES 常量
-        └── utils/              # rate.ts db.ts export.ts seed.ts id.ts
+        └── utils/              # rate.ts db.ts export.ts seed.ts id.ts filing.ts async.ts
 ```
 
 ---
@@ -87,8 +87,9 @@ sologsb101-1014/
 | `/plots` | `pages/PlotList.tsx` | 修复地块台账：新建/编辑/级联删除、按潮位带与底质筛选、回显栽植总株数与最新成活率 |
 | `/plots/:id/seedlings` | `pages/SeedlingBoard.tsx` | 苗木批次与来源登记、批次数量累计校验（含密度提示） |
 | `/plots/:id/plantings` | `pages/PlantingEntry.tsx` | 栽植记录：录株距与株数、按面积与株距校验密度合理性 |
-| `/surveys` | `pages/SurveyBoard.tsx` | 成活率与株高验收台：按测次录入、自动算成活率、低于阈值告警、批量调整成活率等级 |
+| `/surveys` | `pages/SurveyBoard.tsx` | 成活率与株高验收台：按测次录入、自动算成活率、低于阈值告警、批量调整成活率等级、上报与失效重算 |
 | `/replants` | `pages/ReplantPlan.tsx` | 补植计划：状态流转（待补植→已补植→已复核）、行内草稿、JSON 导入导出、结构版本查看 |
+| `/filings` | `pages/FilingBoard.tsx` | 林业站备案：备案号/面积/树种、版本管理、上报前对账（不符挂起并写明差异）、备案侧独立保存与重试 |
 
 `/` 重定向到 `/plots`，未匹配路径统一回落到 `/plots`。
 **层级路由支持直接深链**：把 `http://localhost:22814/plots/plot-donggang-3/seedlings` 直接粘贴到地址栏即可打开；
@@ -100,11 +101,13 @@ sologsb101-1014/
 
 * **持久化方案**：IndexedDB，通过 Dexie 封装（`src/utils/db.ts`）。
 * **数据库名**：`gbmangrove`。
-* **数据结构版本**：`DB_SCHEMA_VERSION = 2`，`version(1)` 建立全部表，`version(2)` 补齐索引并执行 `.upgrade()` 迁移：
-  * 为 `plots` 增加 `updatedAt`、`surveys` 增加 `[plotId+round]` 复合索引、`plantings` 增加 `spacingM` 索引等；
-  * 回填 `revision` / `createdAt` / `updatedAt`；
-  * 为 `plots` 补齐 `missingCount`、`lastReplantDate` 回写字段；
-  * 为 `surveys` 补齐 `grade`、`gradeManual` 字段（按 `survivalRate` 自动判定等级）。
+* **数据结构版本**：`DB_SCHEMA_VERSION = 3`，`version(1)` 建立全部表，`version(2)` 补齐索引并执行 `.upgrade()` 迁移，
+  `version(3)` 新增林业站备案分账与验收上报/失效/依据版本：
+  * v2：为 `plots` 增加 `updatedAt`、`surveys` 增加 `[plotId+round]` 复合索引、`plantings` 增加 `spacingM` 索引等；
+    回填 `revision` / `createdAt` / `updatedAt`；为 `plots` 补齐 `missingCount`、`lastReplantDate` 回写字段；
+    为 `surveys` 补齐 `grade`、`gradeManual` 字段（按 `survivalRate` 自动判定等级）。
+  * v3：新增 `filings` 备案表；为 `surveys` 补齐 `reportState` / `reportedAt` / `basedOnFiling*` / `stale` 字段；
+    升级时按现有地块补建历史备案（取地块面积与主植树种），补不上的（无苗木批次、无法定树种）跳过留待人工补备案。
 * **表结构**：
 
   | 表 | 主键 | 主要索引 |
@@ -112,8 +115,9 @@ sologsb101-1014/
   | `plots` | id | name, tideZone, substrate, restoreMode, state, createdAt, updatedAt |
   | `seedlings` | id | plotId, species, source, arrivalDate, quantity |
   | `plantings` | id | plotId, seedlingId, plantDate, spacingM |
-  | `surveys` | id | plotId, [plotId+round], date, grade |
+  | `surveys` | id | plotId, [plotId+round], date, grade, reportState, stale |
   | `replants` | id | plotId, planDate, state, species |
+  | `filings` | id | plotId, version, status, filingNo, filedAt |
 
 * **首屏演示数据**：`initDatabase()` 在打开数据库后检测 `plots` 表是否为空，为空则调用 `utils/seed.ts` 播种，
   幂等且只执行一次。播种链路为 **地块 → 苗木批次 → 栽植 → 验收 → 补植** 三层互相引用：
@@ -152,3 +156,11 @@ npm run preview      # 预览 dist 产物
 * **密度合理性**：平均单株占地面积需落在 0.6–12 ㎡/株；过密/过疏都会在栽植记录页给出提示。
 * **补植回写**：补植状态推进到「已补植」时，自动扣减地块缺株数、写入最近补植日期，
   并按「原成活株数 + 本次补植株数」重算最新一次验收的成活率。
+* **备案分账**：林业站侧管备案（备案号 / 备案面积 / 备案树种 / 版本），项目部侧管栽植与验收，两边各记各的。
+  备案独立保存，写失败时只重试备案侧本身（`withRetry`），不回滚、不牵连项目部数据。
+* **上报前对账**：项目部上报验收前按地块与备案对账（`src/utils/filing.ts`）：栽植面积（地块面积）或主植树种
+  与备案不符的一律挂起，并写明差在哪（面积差 / 树种差）；未备案的地块上报同样挂起。
+* **备案改动的影响**：备案改动生成新版本后，未上报的验收结论失效（`stale`）需重算后才能上报；
+  已上报的结论冻结原值，并标注依据的备案号与版本（`basedOnFilingNo` / `basedOnFilingVersion`）。
+* **历史备案补建**：旧数据升级到 v3 时，按现有地块面积与主植树种补一份历史备案；
+  补不上的（无苗木批次、无法确定树种）跳过留待人工补备案，地块在备案前不能上报验收。
